@@ -1,0 +1,55 @@
+<scene version="3.0.0">
+	<default name="integrator" value="path" />
+	<default name="spp" value="64" />
+	<default name="resx" value="1350" />
+	<default name="resy" value="1080" />
+	<default name="max_depth" value="8" />
+
+	<integrator type="$integrator">
+		<integer name="max_depth" value="$max_depth" />
+	</integrator>
+
+	<bsdf type="roughplastic" id="tissue">
+		<string name="distribution" value="ggx" />
+		<float name="alpha" value="0.05" />
+		<float name="int_ior" value="1.38" />
+		<float name="ext_ior" value="1.0" />
+		<boolean name="nonlinear" value="true" />
+		<rgb name="diffuse_reflectance" value="0.78, 0.42, 0.36" />
+	</bsdf>
+
+	<sensor type="perspective">
+		<float name="fov" value="82.532955" />
+		<string name="fov_axis" value="x" />
+		<float name="near_clip" value="0.1" />
+		<float name="far_clip" value="200" />
+		<transform name="to_world">
+			<matrix value="0.569842 -0.820068 -0.0526144 69.3521 -0.0241266 0.0473032 -0.998589 192.686 -0.8214 -0.570308 -0.00716986 -42.3472 0 0 0 1" />
+		</transform>
+		<sampler type="independent">
+			<integer name="sample_count" value="$spp" />
+		</sampler>
+		<film type="hdrfilm">
+			<integer name="width" value="$resx" />
+			<integer name="height" value="$resy" />
+			<string name="file_format" value="openexr" />
+			<string name="pixel_format" value="rgb" />
+			<rfilter type="box" />
+		</film>
+	</sensor>
+
+	<emitter type="spot">
+		<rgb name="intensity" value="9000.0, 8200.0, 7400.0" />
+		<float name="cutoff_angle" value="80.0" />
+		<float name="beam_width" value="60.0" />
+		<transform name="to_world">
+			<matrix value="0.569842 -0.820068 -0.0526144 69.3521 -0.0241266 0.0473032 -0.998589 192.686 -0.8214 -0.570308 -0.00716986 -42.3472 0 0 0 1" />
+		</transform>
+	</emitter>
+
+	<shape type="obj" id="trans_t1_a_mesh">
+		<string name="filename" value="../../../data/c3vd/sequences/trans_t1_a/coverage_mesh.obj" />
+		<boolean name="face_normals" value="false" />
+		<ref id="tissue" />
+	</shape>
+</scene>

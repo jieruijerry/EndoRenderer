@@ -1,0 +1,49 @@
+{
+  "source": "https://durrlab.github.io/C3VD/",
+  "license": "CC BY-NC-SA 4.0",
+  "citation": "Bobrow et al., Medical Image Analysis, 2023",
+  "files": {
+    "sequences": [
+      {"name": "cecum_t1_a.zip", "id": "14o6_4GQLZWx5dQq2L_drzmN_rlCT7Yhr", "gb": 2.86},
+      {"name": "cecum_t1_b.zip", "id": "1z3AHdnBH_YoCMnnTfDa8SNPQYIsvaBO3", "gb": 8.36},
+      {"name": "cecum_t2_a.zip", "id": "13XhJIev9memFtwUf_dnjJ7o8z6O_c-xW", "gb": 3.71},
+      {"name": "cecum_t2_b.zip", "id": "1ykYtQGiFesev5QLfz_avYuQ5a7Zs8kgF", "gb": 11.06},
+      {"name": "cecum_t2_c.zip", "id": "1tNoBLpPbrQexKlnOKMK2peERn9Rj_9Dp", "gb": 6.13},
+      {"name": "cecum_t3_a.zip", "id": "1Uw8uCRRDm_RrgkccGbiBXZHf9P-THM2Q", "gb": 6.80},
+      {"name": "cecum_t4_a.zip", "id": "1FC-dR__0LVb7WH02KpUx9TZVvvvN-Gyx", "gb": 5.04},
+      {"name": "cecum_t4_b.zip", "id": "11SbH2AZsuciTu3iGxdXCdQZky6uDTyS5", "gb": 4.41},
+      {"name": "desc_t4_a.zip", "id": "1d9HDNg4-Og1cTWM-eIU5SWM2BMrMWhwQ", "gb": 1.24},
+      {"name": "sigmoid_t1_a.zip", "id": "19VGDuZ73OWNwM8eIgDkkZYBPJPQ5BD91", "gb": 5.20},
+      {"name": "sigmoid_t2_a.zip", "id": "16epAys428g9vBQgm611TElMyAXORo7rH", "gb": 4.22},
+      {"name": "sigmoid_t3_a.zip", "id": "1ZRU2KuHoc2XCbKSY_A1S-7BxEfKf9xPr", "gb": 4.58},
+      {"name": "sigmoid_t3_b.zip", "id": "1XfZFAQ5_Wxle8d5wSlOCumKSg4IP8wTv", "gb": 4.21},
+      {"name": "trans_t1_a.zip", "id": "1urFuVo8ZalwPmsXEZg3xzhuqhpgWV8hw", "gb": 0.59},
+      {"name": "trans_t1_b.zip", "id": "1hyjmd7vn86McE1nUnYCzvOm8LlyHLYwt", "gb": 5.07},
+      {"name": "trans_t2_a.zip", "id": "1ylZWWtVlXfDx9dhPIeWJ1HqDHJZ3QKdH", "gb": 1.58},
+      {"name": "trans_t2_b.zip", "id": "1vru228_TEgxT3aS90CmvOWsMB0RLnAxn", "gb": 0.97},
+      {"name": "trans_t2_c.zip", "id": "12YpowbP6zhoO_Qx9UBwhfRLXNJN1EAu4", "gb": 1.83},
+      {"name": "trans_t3_a.zip", "id": "1B4aeZfAqmUJgWr8e-2YAibUe4er30ncr", "gb": 1.83},
+      {"name": "trans_t3_b.zip", "id": "1ZpbYcDVP-sCTjjQrDc303olFgsr2nA5J", "gb": 1.66},
+      {"name": "trans_t4_a.zip", "id": "18qzXMifS54jAx29yROKXXxxZg0qo-iTz", "gb": 3.10},
+      {"name": "trans_t4_b.zip", "id": "1C-nw6MR7sxssw3LS-GpiPmwBzEYhUCHN", "gb": 4.61}
+    ],
+    "screening": [
+      {"name": "screening_t1.zip", "id": "18m3Z5zJtljor_AGmPW8OgO9fRuactuNk", "gb": 8.13},
+      {"name": "screening_t2.zip", "id": "1kn_qevX7lLh3gWkiKAt3hgWFpy0P68s6", "gb": 7.09},
+      {"name": "screening_t3.zip", "id": "1RmOnnjJBzCMwO5gPY4h3e4MpcDDOvOb6", "gb": 7.07},
+      {"name": "screening_t4.zip", "id": "1sYps79WjJ0ETRtuWtHd_1zeuyPLtoMM7", "gb": 7.36}
+    ],
+    "models": [
+      {"name": "ascend_model.obj", "id": "1EsWdG3r9WYUpONzNKFbNVl_u9zpTQPCd", "gb": 0.0254},
+      {"name": "cecum_model.obj", "id": "1-1jVQn6lFHP22qyVO-fHA3f9Vvqiztpb", "gb": 0.0548},
+      {"name": "desc_model.obj", "id": "1B8CNXxAM5t8C2W14YAnzWJYUu5Lmtit7", "gb": 0.0380},
+      {"name": "sigmoid_model.obj", "id": "1ySPh9w9Ix-fxh4r6cn3LYdu_A_1QWGAp", "gb": 0.0208},
+      {"name": "trans_model.obj", "id": "1--_lUA1fRlIB6Ed1rf1FfqsSWxe9vKYQ", "gb": 0.0183},
+      {"name": "full_model.obj", "id": "12gKUf4HvPYm3DiRxFmoum70--kkSewhq", "gb": 0.1948}
+    ],
+    "calibration": [
+      {"name": "cfhq190l_10x10mm_checkerboard_images.zip", "id": "1ZTNyLx0p19U2Q3vl8dUe2YxxxA-9WisI", "gb": 0.0},
+      {"name": "cfhq190l_omnidirectional_params.zip", "id": "1gUA7mAM7DSD9oCvPH1hgQ0s2hhg1kOaC", "gb": 0.0}
+    ]
+  }
+}
