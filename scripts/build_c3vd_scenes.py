@@ -18,13 +18,43 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SEQ_ROOT = REPO_ROOT / "data" / "c3vd" / "sequences"
 DEFAULT_SCENE_ROOT = REPO_ROOT / "scenes" / "c3vd"
 
-# Scaramuzza linear term from C3VD CF-HQ190L calibration (pixels).
-C3VD_WIDTH = 1350
-C3VD_HEIGHT = 1080
-C3VD_A0 = 769.243600037458
+# Scaramuzza intrinsics for the CF-HQ190L, from the C3VD calibration file.
+# e, f, g are the stretch matrix [[e, f], [g, 1]] in Bobrow et al. Eq. 3.
+CALIB_PATH = (
+    REPO_ROOT
+    / "data"
+    / "c3vd"
+    / "calibration"
+    / "cfhq190l_omnidirectional_params"
+    / "cfhq190l_omnidirectional_values.txt"
+)
 
-# OpenCV (Y down, +Z forward) -> Mitsuba perspective/spot (Y up, +Z forward).
-OPENCV_TO_MITSUBA = np.diag([1.0, -1.0, 1.0, 1.0])
+
+def load_intrinsics() -> dict:
+    vals = np.loadtxt(CALIB_PATH)
+    width, height, cx, cy, a0, a2, a3, a4, stretch_e, stretch_f, stretch_g = vals.tolist()
+    return {
+        "width": int(width),
+        "height": int(height),
+        "cx": cx,
+        "cy": cy,
+        "a0": a0,
+        "a2": a2,
+        "a3": a3,
+        "a4": a4,
+        "e": stretch_e,
+        "f": stretch_f,
+        "g": stretch_g,
+    }
+
+
+INTRINSICS = load_intrinsics()
+C3VD_WIDTH = INTRINSICS["width"]
+C3VD_HEIGHT = INTRINSICS["height"]
+
+# OpenCV camera (X right, Y down, Z forward) -> Mitsuba camera
+# (X left, Y up, Z forward). Both are right-handed.
+OPENCV_TO_MITSUBA = np.diag([-1.0, -1.0, 1.0, 1.0])
 
 # Mucosa-like constants. alpha is GGX roughness; IOR ~ colorectal tissue.
 ROUGHNESS_ALPHA = 0.05
@@ -56,13 +86,9 @@ def matrix_attr(m: np.ndarray) -> str:
     return " ".join(f"{x:.8g}" for x in m.reshape(-1))
 
 
-def horizontal_fov_deg() -> float:
-    return float(np.degrees(2.0 * np.arctan(C3VD_WIDTH / (2.0 * C3VD_A0))))
-
-
 def scene_xml(seq_name: str, c2w_mi: np.ndarray, mesh_rel: str) -> str:
-    fov = horizontal_fov_deg()
     mat = matrix_attr(c2w_mi)
+    cam = INTRINSICS
     ar, ag, ab = ALBEDO
     ir, ig, ib = SPOT_INTENSITY
     return f"""<scene version="3.0.0">
@@ -85,9 +111,16 @@ def scene_xml(seq_name: str, c2w_mi: np.ndarray, mesh_rel: str) -> str:
 		<rgb name="diffuse_reflectance" value="{ar}, {ag}, {ab}" />
 	</bsdf>
 
-	<sensor type="perspective">
-		<float name="fov" value="{fov:.6f}" />
-		<string name="fov_axis" value="x" />
+	<sensor type="c3vd">
+		<float name="cx" value="{cam['cx']:.12g}" />
+		<float name="cy" value="{cam['cy']:.12g}" />
+		<float name="a0" value="{cam['a0']:.12g}" />
+		<float name="a2" value="{cam['a2']:.12g}" />
+		<float name="a3" value="{cam['a3']:.12g}" />
+		<float name="a4" value="{cam['a4']:.12g}" />
+		<float name="e" value="{cam['e']:.12g}" />
+		<float name="f" value="{cam['f']:.12g}" />
+		<float name="g" value="{cam['g']:.12g}" />
 		<float name="near_clip" value="0.1" />
 		<float name="far_clip" value="200" />
 		<transform name="to_world">

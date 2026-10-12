@@ -16,6 +16,7 @@ from src.denoise.simple_denoise.filter import FilterTasks
 from src.viewer.camera import FPSCamera, MovingCamera
 from src.viewer.ui import UI
 from render import load_render_vars
+from src.sensor.c3vd import sensor_prefix
 
 # Mitsuba
 import drjit as dr
@@ -38,14 +39,8 @@ def render_video(render_vars: dict, script: dict, args: argparse.Namespace) -> t
     spp = script["spp"]
     render_mode = script["render_mode"]
 
-    if render_mode == "LHS":
+    if render_mode == "Neural":
         integrator = render_vars["integrators"][args.config]
-        integrator.render_mode = "LHS"
-        spp = 1
-    elif render_mode == "RHS":
-        integrator = render_vars["integrators"][args.config]
-        integrator.render_mode = "RHS"
-        integrator.spp = spp
         spp = 1
     elif render_mode == "PT":
         integrator = render_vars["integrators"]["path"]
@@ -102,8 +97,11 @@ def render_video(render_vars: dict, script: dict, args: argparse.Namespace) -> t
             # Interpolate camera
             cam_v = frame / (duration * fps)
             camera = cameras.get_camera(section, cam_v)
-            params['PerspectiveCamera.to_world'] = mi.Matrix4f(camera.get_transform()[None, ...])
-            params['PerspectiveCamera.x_fov'] = mi.Float32(camera.get_x_fov()[None, ...])
+            prefix = sensor_prefix(params)
+            params[f"{prefix}.to_world"] = mi.Matrix4f(camera.get_transform()[None, ...])
+            fov_key = f"{prefix}.x_fov"
+            if fov_key in params:
+                params[fov_key] = mi.Float32(camera.get_x_fov()[None, ...])
             params.update()
 
             # Render img

@@ -12,17 +12,21 @@ import torch
 # Custom
 from src.util.progress_bar import find_best_ckpt
 from src.model.radiosity import *
+from src.model.nerf import EndoPBR, NeRF
 from src.integrator.neural import *
 from src.integrator.path import *
 from src.integrator.g_buffer import *
 from src.integrator.ao import *
 from src.viewer.camera import FPSCamera
 from src.viewer.ui import UI
-
 # Mitsuba
 import drjit as dr
 import mitsuba as mi
 mi.set_variant("cuda_rgb")
+
+from src.sensor.c3vd import register_c3vd_sensor, sensor_prefix
+
+register_c3vd_sensor()
 
 
 def load_render_vars(config: dict, args: argparse.Namespace):
@@ -43,25 +47,26 @@ def load_render_vars(config: dict, args: argparse.Namespace):
     else:
         ckpt_path, _ = find_best_ckpt(ckpt_dir, metric="loss")
 
-    if config["model"]["name"][:2] == "NR":
+    model_name = config["model"]["name"]
+    if model_name.startswith("EndoPBR"):
+        model = EndoPBR.load_from_checkpoint(
+            ckpt_path,
+            pipeline_config=config,
+            scene=scene
+        )
+    elif model_name.startswith("NeRF"):
+        model = NeRF.load_from_checkpoint(
+            ckpt_path,
+            pipeline_config=config,
+            scene=scene
+        )
+    elif model_name[:2] == "NR":
         model = NeuralRadiosity.load_from_checkpoint(
             ckpt_path,
             pipeline_config=config,
             scene=scene
         )
-    elif config["model"]["name"][:4] == "NeLP":
-        model = NeuralLightProbe.load_from_checkpoint(
-            ckpt_path,
-            pipeline_config=config,
-            scene=scene
-        )
-    elif config["model"]["name"][:10] == "OctreeNeLP":
-        model = OctreeNeLP.load_from_checkpoint(
-            ckpt_path,
-            pipeline_config=config,
-            scene=scene
-        )
-    elif config["model"]["name"] == "NULL":
+    elif model_name == "NULL":
         model = torch.nn.Module()
     print("Restoring model from", ckpt_path)
     if args.half_precision:
@@ -71,7 +76,6 @@ def load_render_vars(config: dict, args: argparse.Namespace):
     # Initialize integrator
     nr_integrator = RadiosityIntegrator(
         model=model,
-        render_mode="LHS",
         precision=torch.float16 if args.half_precision else torch.float32,
     )
     path_integrator = mi.load_dict({
@@ -91,9 +95,12 @@ def load_render_vars(config: dict, args: argparse.Namespace):
         "type": "ao"
     })
 
-    width, height = params['PerspectiveCamera.film.size'].numpy()
-    x_fov = params['PerspectiveCamera.x_fov'].numpy()[0]
-    extrinsic = params['PerspectiveCamera.to_world'].matrix.numpy()[0]
+    prefix = sensor_prefix(params)
+    width, height = params[f"{prefix}.film.size"].numpy()
+    fov_key = f"{prefix}.x_fov"
+    # The endoscope intrinsics are fixed. x_fov is only the viewer dolly state.
+    x_fov = float(params[fov_key].numpy()[0]) if fov_key in params else 126.0
+    extrinsic = params[f"{prefix}.to_world"].matrix.numpy()[0]
     camera = FPSCamera({
         "width": width,
         "height": height,
@@ -143,6 +150,8 @@ def render(config: dict, args: argparse.Namespace):
     save_img = False
     save_camera = False
     load_camera = False
+    has_spot = "SpotLight.to_world" in params
+    follow_light = True
 
     camera_id = 0
     scene_idx = 0
@@ -150,14 +159,20 @@ def render(config: dict, args: argparse.Namespace):
     while not ui.should_close():
         ui.begin_frame()
         
-        params['PerspectiveCamera.to_world'] = mi.Matrix4f(camera.get_transform()[None, ...])
-        params['PerspectiveCamera.x_fov'] = mi.Float32(camera.get_x_fov()[None, ...])
+        cam_to_world = mi.Matrix4f(camera.get_transform()[None, ...])
+        prefix = sensor_prefix(params)
+        params[f"{prefix}.to_world"] = cam_to_world
+        fov_key = f"{prefix}.x_fov"
+        if fov_key in params:
+            params[fov_key] = mi.Float32(camera.get_x_fov()[None, ...])
+        if has_spot and follow_light:
+            params['SpotLight.to_world'] = cam_to_world
         params.update()
 
         if imgui.tree_node("Render Options", imgui.TREE_NODE_DEFAULT_OPEN):
 
             _, int_type = imgui.combo("Integrator", int_type, [
-                                    "Path", "LHS", "RHS", "Depth", "Albedo", "Normal", "AO"])
+                                    "Path", "Neural", "Depth", "Albedo", "Normal", "AO"])
             _, slider_spp = imgui.slider_int("SPP", slider_spp, 1, 32)
 
             if int_type == 0:
@@ -165,28 +180,22 @@ def render(config: dict, args: argparse.Namespace):
                 spp = slider_spp
             elif int_type == 1:
                 integrator = nr_integrator
-                nr_integrator.render_mode = "LHS"
                 spp = 1
             elif int_type == 2:
-                integrator = nr_integrator
-                nr_integrator.render_mode = "RHS"
-                nr_integrator.spp = slider_spp
-                spp = 1
-            elif int_type == 3:
                 integrator = depth_integrator
                 if use_antialiasing:
                     depth_integrator.ray_type = "secondary"
                 else:
                     depth_integrator.ray_type = "primary"
                 spp = slider_spp
-            elif int_type == 4:
+            elif int_type == 3:
                 integrator = albedo_integrator
                 integrator.specular = use_antialiasing
                 spp = slider_spp
-            elif int_type == 5:
+            elif int_type == 4:
                 integrator = normal_integrator
                 spp = slider_spp
-            elif int_type == 6:
+            elif int_type == 5:
                 integrator = ao_integrator
                 spp = slider_spp
 
@@ -198,6 +207,8 @@ def render(config: dict, args: argparse.Namespace):
             imgui.tree_pop()
         
         if imgui.tree_node("Camera", imgui.TREE_NODE_DEFAULT_OPEN):
+            if has_spot:
+                _, follow_light = imgui.checkbox("Light follows camera", follow_light)
             _, save_camera = imgui.checkbox("Save camera config", save_camera)
             if save_camera:
                 x_fov = camera.get_x_fov()

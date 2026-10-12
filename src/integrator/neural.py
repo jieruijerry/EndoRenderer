@@ -1,7 +1,8 @@
 import torch
-import imgui
+from typing import Union
 
 from src.model.radiosity import RadiosityPipeline
+from src.model.nerf import NeRF
 from src.sample.lhs_rhs import first_smooth
 
 import drjit as dr
@@ -12,9 +13,7 @@ mi.set_variant("cuda_rgb")
 class RadiosityIntegrator(mi.SamplingIntegrator):
     def __init__(
         self,
-        model: RadiosityPipeline,
-        render_mode: str = "LHS",
-        spp: int = 1,
+        model: Union[RadiosityPipeline, NeRF],
         precision=torch.float32
     ) -> None:
         props = mi.Properties()
@@ -24,8 +23,6 @@ class RadiosityIntegrator(mi.SamplingIntegrator):
         super().__init__(props)
 
         self.model = model
-        self.render_mode = render_mode
-        self.spp = spp
         self.precision = precision
 
     def sample(
@@ -36,24 +33,16 @@ class RadiosityIntegrator(mi.SamplingIntegrator):
         medium: mi.Medium = None,
         active: bool = True,
     ) -> tuple[mi.Color3f, bool, list[float]]:
-        
-        si: mi.SurfaceInteraction3f = scene.ray_intersect(ray, active)
-        # si, throughput, emission, _ = first_smooth(scene, sampler, ray, active)
 
         with torch.no_grad():
-        
-            if self.render_mode == "LHS":
-                color = self.model.render_lhs(si, precision=self.precision)
-            elif self.render_mode == "RHS":
-                color = self.model.render_rhs(si, spp=self.spp, precision=self.precision)
-            else:
-                raise ValueError("Invalid render mode:", self.render_mode)
+            color, valid = self.model.render(
+                scene, sampler, ray, active, precision=self.precision
+            )
 
-        result = mi.Color3f(color.to(torch.float32)) #* throughput + emission
-        
+        result = mi.Color3f(color.to(torch.float32))
+        mask = mi.Float(valid.to(torch.float32)) > 0
+
         dr.sync_device()
         torch.cuda.synchronize()
-        # torch.cuda.empty_cache()
-        
-        return result, si.is_valid(), []
 
+        return result, mask, []

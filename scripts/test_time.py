@@ -100,8 +100,12 @@ if __name__ == "__main__":
         camera.set_x_fov(x_fov)
     print("Camera config loaded from", os.path.join("out", args.scene, "camera.npz"))
 
-    params['PerspectiveCamera.to_world'] = mi.Matrix4f(camera.get_transform()[None, ...])
-    params['PerspectiveCamera.x_fov'] = mi.Float32(camera.get_x_fov()[None, ...])
+    from src.sensor.c3vd import sensor_prefix
+    prefix = sensor_prefix(params)
+    params[f"{prefix}.to_world"] = mi.Matrix4f(camera.get_transform()[None, ...])
+    fov_key = f"{prefix}.x_fov"
+    if fov_key in params:
+        params[fov_key] = mi.Float32(camera.get_x_fov()[None, ...])
     params.update()
 
     if (args.box_filter):
@@ -138,7 +142,6 @@ if __name__ == "__main__":
     pt_spp = 16
     odin_spp = 4
     lhs_spp = 1
-    rhs_spp = 16
     lrhs_thresh = 8  # TODO: related to the Network Configuration
     info = []
     result = []
@@ -184,10 +187,9 @@ if __name__ == "__main__":
     #     if (args.save):
     #         mi.util.write_bitmap("screenshots/{}-oidn-{}.exr".format(timestamp, odin_spp), img)
 
-    # LHS
+    # Neural
     if (args.w[2] == "1"):
-        nr_integrator.render_mode = "LHS"
-        name = "LHS({}spp)".format(lhs_spp)
+        name = "Neural({}spp)".format(lhs_spp)
         info.append(name)
         print(name)
         print("Warm up")
@@ -205,10 +207,9 @@ if __name__ == "__main__":
         if (args.save):
             mi.util.write_bitmap("screenshots/{}-lhs-{}.exr".format(timestamp, lhs_spp), img)
 
-    # # LHS with FXAA
+    # # Neural with FXAA
     # if (args.w[3] == "1"):
-    #     nr_integrator.render_mode = "LHS"
-    #     name = "LHS(+FXAA)({}spp)".format(lhs_spp)
+    #     name = "Neural(+FXAA)({}spp)".format(lhs_spp)
     #     info.append(name)
     #     print(name)
     #     print("Warm up")
@@ -229,26 +230,6 @@ if __name__ == "__main__":
     #         img = mi.render(scene, integrator=nr_integrator, spp=lhs_spp, seed=r_seed)
     #         img = fxaa_denoiser.fetch_denoised_result_headless(img.torch(), True)
     #         mi.util.write_bitmap("screenshots/{}-lhs-{}-fxaa.exr".format(timestamp, lhs_spp), img)
-
-    # RHS
-    if (args.w[4] == "1"):
-        nr_integrator.render_mode = "RHS"
-        name = "RHS({}spp)".format(rhs_spp)
-        info.append(name)
-        print(name)
-        print("Warm up")
-        for i in trange(warm_iter):
-            img = schedule(nr_integrator, scene, rhs_spp, lrhs_thresh, r_seed)
-        print("Test")
-        a = sync()
-        for i in trange(test_iter):
-            img = schedule(nr_integrator, scene, rhs_spp, lrhs_thresh, r_seed)
-        b = sync()
-        c = (b - a) / test_iter
-        result.append(c)
-        print("Average Time: {}".format(c))
-        if (args.save):
-            mi.util.write_bitmap("screenshots/{}-rhs-{}.exr".format(timestamp, rhs_spp), img)
 
     print(result)
     for k, v in zip(info, result):

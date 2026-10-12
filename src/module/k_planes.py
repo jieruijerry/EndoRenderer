@@ -1,5 +1,26 @@
+import os
+
 import torch
 import torch.nn as nn
+from torch.utils.cpp_extension import load
+
+
+class _KPlanesEncode(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, cuda_kernel, pos, *grids):
+        ctx.cuda_kernel = cuda_kernel
+        ctx.save_for_backward(pos, *grids)
+        return cuda_kernel.forward(pos, list(grids))
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        saved = ctx.saved_tensors
+        pos = saved[0]
+        grids = list(saved[1:])
+        grads = ctx.cuda_kernel.backward(grad_output.contiguous(), pos, grids)
+        grad_pos = grads[0]
+        grad_grids = list(grads[1:])
+        return (None, grad_pos, *grad_grids)
 
 
 class KPlanes(nn.Module):
@@ -24,6 +45,7 @@ class KPlanes(nn.Module):
     def __init__(self, config: dict) -> None:
         super(KPlanes, self).__init__()
         self.config = config
+        self.use_kernel = False
 
         # Move constants to device
         self.register_buffer("idx_offset", KPlanes.index_offset)
@@ -65,6 +87,43 @@ class KPlanes(nn.Module):
             dim *= self.K
         return dim
     
+    def load_kernel(self, kernel_name: str = "k_planes_cuda") -> None:
+        """
+        Load the pairwise K-Planes CUDA kernel. PVPlanes keeps the Python path.
+        """
+        self.use_kernel = True
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.cuda_kernel = load(
+            name=kernel_name,
+            sources=[
+                os.path.join(current_dir, "k_planes_cuda", "k_planes_bindings.cpp"),
+                os.path.join(current_dir, "k_planes_cuda", "k_planes_cuda.cu"),
+            ],
+            extra_cflags=[
+                "-O3",
+                "-DLEVELS={}".format(self.L),
+                "-DDIMENSIONS={}".format(self.D),
+                "-DLOG_HASHMAP_SIZE={}".format(self.config["log2_hashmap_size"]),
+                "-DBASE_RESOLUTION={}".format(self.config["base_resolution"]),
+                "-DPER_LEVEL_SCALE={}".format(self.config["per_level_scale"]),
+                "-DN_DIMS={}".format(self.n_dims),
+                "-DK_REDUCE={}".format(self.config["k_reduce"].upper()),
+                "-DLEVEL_REDUCE={}".format(self.config["level_reduce"].upper()),
+            ],
+            extra_cuda_cflags=[
+                "-O3", "-g", "-lineinfo", "-Xcompiler", "-rdynamic",
+                "-DLEVELS={}".format(self.L),
+                "-DDIMENSIONS={}".format(self.D),
+                "-DLOG_HASHMAP_SIZE={}".format(self.config["log2_hashmap_size"]),
+                "-DBASE_RESOLUTION={}".format(self.config["base_resolution"]),
+                "-DPER_LEVEL_SCALE={}".format(self.config["per_level_scale"]),
+                "-DN_DIMS={}".format(self.n_dims),
+                "-DK_REDUCE={}".format(self.config["k_reduce"].upper()),
+                "-DLEVEL_REDUCE={}".format(self.config["level_reduce"].upper()),
+            ],
+            verbose=True,
+        )
+
     def get_uv(self, pos: torch.Tensor) -> torch.Tensor:
         """
         Calculate uv coordinates
@@ -83,6 +142,9 @@ class KPlanes(nn.Module):
         """
         Interpolate grid features onto si.
         """
+        if self.use_kernel and type(self) is KPlanes:
+            return _KPlanesEncode.apply(self.cuda_kernel, pos.contiguous(), *self.grids)
+
         uv = self.get_uv(pos)
 
         features = []

@@ -31,7 +31,7 @@ torch::Tensor forward(
 ) {
     auto N = pos.size(0);
     auto L = grids.size();
-    auto D = grids[0].size(2);
+    auto D = grids[0].size(-1);
     auto options = grids[0].options();
 
     assert(L == LEVELS);
@@ -58,7 +58,7 @@ torch::Tensor forward_layer_interp(
 ) {
     auto N = pos.size(0);
     auto L = grids.size();
-    auto D = grids[0].size(2);
+    auto D = grids[0].size(-1);
     auto options = grids[0].options();
 
     assert(L == LEVELS);

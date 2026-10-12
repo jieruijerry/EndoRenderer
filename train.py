@@ -20,7 +20,12 @@ mi.set_variant("cuda_rgb")
 
 # Custom
 from src.model.radiosity import *
+from src.model.nerf import EndoPBR, NeRF
 from src.dataset.camera import *
+from src.dataset.c3vd_color import C3VDColorDataset
+from src.sensor.c3vd import register_c3vd_sensor
+
+register_c3vd_sensor()
 from src.util.progress_bar import StepRichProgressBar, find_best_ckpt
 
 
@@ -83,7 +88,11 @@ def train(config: dict, args: argparse.Namespace):
     )
     
     # Train
-    if os.path.exists(os.path.join("scenes", args.scene, "camera_poses")):
+    model_name = config["model"]["name"]
+    if model_name.startswith("NeRF") or model_name.startswith("EndoPBR"):
+        seq_dir = os.path.join("data", "c3vd", "sequences", os.path.basename(args.scene))
+        dataset = C3VDColorDataset(seq_dir, n_rays=config["sample"]["n_rays"])
+    elif os.path.exists(os.path.join("scenes", args.scene, "camera_poses")):
         dataset = CameraDataset(os.path.join("scenes", args.scene, "camera_poses"))
     elif manager is not None:
         dataset = manager.get_dataset()
@@ -101,31 +110,31 @@ def train(config: dict, args: argparse.Namespace):
 
     if ckpt_path is None:
         # Load model
-        if config["model"]["name"][:2] == "NR":
+        if model_name.startswith("EndoPBR"):
+            model = EndoPBR(config, scene)
+        elif model_name.startswith("NeRF"):
+            model = NeRF(config, scene)
+        elif model_name[:2] == "NR":
             model = NeuralRadiosity(config, scene)
-        elif config["model"]["name"][:4] == "NeLP":
-            model = NeuralLightProbe(config, scene)
-        elif config["model"]["name"][:10] == "OctreeNeLP":
-            model = OctreeNeLP(config, scene)
         model.train()
 
         trainer.fit(model, train_dataloaders=data_loader)
     else:
         # Train from the chosen checkpoint
-        if config["model"]["name"][:2] == "NR":
+        if model_name.startswith("EndoPBR"):
+            model = EndoPBR.load_from_checkpoint(
+                ckpt_path,
+                pipeline_config=config,
+                scene=scene
+            )
+        elif model_name.startswith("NeRF"):
+            model = NeRF.load_from_checkpoint(
+                ckpt_path,
+                pipeline_config=config,
+                scene=scene
+            )
+        elif model_name[:2] == "NR":
             model = NeuralRadiosity.load_from_checkpoint(
-                ckpt_path,
-                pipeline_config=config,
-                scene=scene
-            )
-        elif config["model"]["name"][:4] == "NeLP":
-            model = NeuralLightProbe.load_from_checkpoint(
-                ckpt_path,
-                pipeline_config=config,
-                scene=scene
-            )
-        elif config["model"]["name"][:10] == "OctreeNeLP":
-            model = OctreeNeLP.load_from_checkpoint(
                 ckpt_path,
                 pipeline_config=config,
                 scene=scene
@@ -140,7 +149,7 @@ def parse_args():
     Parse command line arguments
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", type=str, default="octaoctree")
+    parser.add_argument("-c", "--config", type=str, default="nr")
     parser.add_argument("-s", "--scene", type=str, default="cornell-box")
     return parser.parse_args()
 

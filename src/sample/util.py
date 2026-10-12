@@ -25,6 +25,22 @@ def normalize_pos(pos: torch.Tensor, bbox: torch.Tensor, isotropic=False) -> tor
         return (pos - bbox[0]) / (bbox[1] - bbox[0]).max()
     return (pos - bbox[0]) / (bbox[1] - bbox[0])
 
+
+def guard_query_pos(pos: torch.Tensor, valid: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Hash-grid vertices cover [0, 1). Misses and any other sample outside that
+    interval are moved to 0.5. ``keep`` is the samples whose color should stay.
+    """
+    valid = valid.reshape(pos.shape[0]).bool()
+    inside = (
+        torch.isfinite(pos).all(dim=-1)
+        & (pos >= 0).all(dim=-1)
+        & (pos < 1).all(dim=-1)
+    )
+    keep = valid & inside
+    pos = torch.where(keep[:, None], pos, torch.full_like(pos, 0.5))
+    return pos, keep
+
 def compute_areas(scene: mi.Scene):
     """
     Compute the areas of each mesh of the scene

@@ -14,6 +14,7 @@ from src.viewer.camera import FPSCamera, MovingCamera
 from src.integrator.neural import RadiosityIntegrator
 # from src.model.radiosity import DNRPipeline
 from render import load_render_vars
+from src.sensor.c3vd import sensor_prefix
 
 # Mitsuba
 import drjit as dr
@@ -29,14 +30,8 @@ def render_image(render_vars: dict, args: argparse.Namespace) -> torch.Tensor:
     spp = args.spp
     render_mode = args.render_mode
 
-    if render_mode == "LHS":
+    if render_mode == "Neural":
         integrator = render_vars["integrators"][args.config]
-        integrator.render_mode = "LHS"
-        spp = 1
-    elif render_mode == "RHS":
-        integrator = render_vars["integrators"][args.config]
-        integrator.render_mode = "RHS"
-        integrator.spp = spp
         spp = 1
     elif render_mode == "PT":
         integrator = render_vars["integrators"]["path"]
@@ -49,8 +44,11 @@ def render_image(render_vars: dict, args: argparse.Namespace) -> torch.Tensor:
         intrinsics = data["intrinsics"].item()
     
     camera = FPSCamera(intrinsics, extrinsics, speed=1)
-    params['PerspectiveCamera.to_world'] = mi.Matrix4f(camera.get_transform()[None, ...])
-    params['PerspectiveCamera.x_fov'] = mi.Float32(camera.get_x_fov()[None, ...])
+    prefix = sensor_prefix(params)
+    params[f"{prefix}.to_world"] = mi.Matrix4f(camera.get_transform()[None, ...])
+    fov_key = f"{prefix}.x_fov"
+    if fov_key in params:
+        params[fov_key] = mi.Float32(camera.get_x_fov()[None, ...])
     params.update()
     
     # Render
@@ -78,7 +76,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", type=str, default="null")
     parser.add_argument("-s", "--scene", type=str, default="cornell-box")
-    parser.add_argument("-r", "--render_mode", type=str, default="PT", choices=["LHS", "RHS", "PT"])
+    parser.add_argument("-r", "--render_mode", type=str, default="PT", choices=["Neural", "PT"])
     parser.add_argument("-p", "--spp", type=int, default=102400)
     parser.add_argument("-o", "--output", type=str, default="test")
     parser.add_argument("-m", "--model_ckpt", type=str, default=None)

@@ -18,13 +18,20 @@
 		<rgb name="diffuse_reflectance" value="0.78, 0.42, 0.36" />
 	</bsdf>
 
-	<sensor type="perspective">
-		<float name="fov" value="82.532955" />
-		<string name="fov_axis" value="x" />
+	<sensor type="c3vd">
+		<float name="cx" value="679.544839263" />
+		<float name="cy" value="543.975887548" />
+		<float name="a0" value="769.243600037" />
+		<float name="a2" value="-0.00081277062415" />
+		<float name="a3" value="6.25674244579e-07" />
+		<float name="a4" value="-1.19662182144e-09" />
+		<float name="e" value="0.99998688225" />
+		<float name="f" value="0.00288273829525" />
+		<float name="g" value="-0.0029631651343" />
 		<float name="near_clip" value="0.1" />
 		<float name="far_clip" value="200" />
 		<transform name="to_world">
-			<matrix value="0.522953 0.826715 0.207515 71.2233 0.730862 -0.309642 -0.608246 44.6003 0.43859 -0.469749 0.766143 -127.896 0 0 0 1" />
+			<matrix value="-0.522953 0.826715 0.207515 71.2233 -0.730862 -0.309642 -0.608246 44.6003 -0.43859 -0.469749 0.766143 -127.896 0 0 0 1" />
 		</transform>
 		<sampler type="independent">
 			<integer name="sample_count" value="$spp" />
@@ -43,7 +50,7 @@
 		<float name="cutoff_angle" value="80.0" />
 		<float name="beam_width" value="60.0" />
 		<transform name="to_world">
-			<matrix value="0.522953 0.826715 0.207515 71.2233 0.730862 -0.309642 -0.608246 44.6003 0.43859 -0.469749 0.766143 -127.896 0 0 0 1" />
+			<matrix value="-0.522953 0.826715 0.207515 71.2233 -0.730862 -0.309642 -0.608246 44.6003 -0.43859 -0.469749 0.766143 -127.896 0 0 0 1" />
 		</transform>
 	</emitter>
 
