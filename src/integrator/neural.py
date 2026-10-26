@@ -35,7 +35,7 @@ class RadiosityIntegrator(mi.SamplingIntegrator):
     ) -> tuple[mi.Color3f, bool, list[float]]:
 
         with torch.no_grad():
-            color, valid = self.model.render(
+            color, valid, *_ = self.model.render(
                 scene, sampler, ray, active, precision=self.precision
             )
 

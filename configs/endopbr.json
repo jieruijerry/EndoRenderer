@@ -8,6 +8,7 @@
     },
     "model": {
         "name": "EndoPBR",
+        "global_rm": true,
         "ray": {
             "name": "HashGrid",
             "n_dims_to_encode": 3,

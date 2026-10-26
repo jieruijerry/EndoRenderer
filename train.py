@@ -20,7 +20,7 @@ mi.set_variant("cuda_rgb")
 
 # Custom
 from src.model.radiosity import *
-from src.model.nerf import EndoPBR, NeRF
+from src.model.nerf import EndoPBR, EndoRen, NeRF
 from src.dataset.camera import *
 from src.dataset.c3vd_color import C3VDColorDataset
 from src.sensor.c3vd import register_c3vd_sensor
@@ -89,7 +89,7 @@ def train(config: dict, args: argparse.Namespace):
     
     # Train
     model_name = config["model"]["name"]
-    if model_name.startswith("NeRF") or model_name.startswith("EndoPBR"):
+    if model_name.startswith(("NeRF", "EndoPBR", "EndoRen")):
         seq_dir = os.path.join("data", "c3vd", "sequences", os.path.basename(args.scene))
         dataset = C3VDColorDataset(seq_dir, n_rays=config["sample"]["n_rays"])
     elif os.path.exists(os.path.join("scenes", args.scene, "camera_poses")):
@@ -112,6 +112,8 @@ def train(config: dict, args: argparse.Namespace):
         # Load model
         if model_name.startswith("EndoPBR"):
             model = EndoPBR(config, scene)
+        elif model_name.startswith("EndoRen"):
+            model = EndoRen(config, scene)
         elif model_name.startswith("NeRF"):
             model = NeRF(config, scene)
         elif model_name[:2] == "NR":
@@ -123,6 +125,12 @@ def train(config: dict, args: argparse.Namespace):
         # Train from the chosen checkpoint
         if model_name.startswith("EndoPBR"):
             model = EndoPBR.load_from_checkpoint(
+                ckpt_path,
+                pipeline_config=config,
+                scene=scene
+            )
+        elif model_name.startswith("EndoRen"):
+            model = EndoRen.load_from_checkpoint(
                 ckpt_path,
                 pipeline_config=config,
                 scene=scene

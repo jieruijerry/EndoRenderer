@@ -12,7 +12,7 @@ import torch
 # Custom
 from src.util.progress_bar import find_best_ckpt
 from src.model.radiosity import *
-from src.model.nerf import EndoPBR, NeRF
+from src.model.nerf import EndoPBR, EndoRen, NeRF
 from src.integrator.neural import *
 from src.integrator.path import *
 from src.integrator.g_buffer import *
@@ -24,9 +24,89 @@ import drjit as dr
 import mitsuba as mi
 mi.set_variant("cuda_rgb")
 
+from src.dataset.c3vd_color import parse_mitsuba_c2w
 from src.sensor.c3vd import register_c3vd_sensor, sensor_prefix
 
 register_c3vd_sensor()
+
+
+def _light_key(params) -> str | None:
+    """Scene parameter for the endoscope light, disk preferred over spotlight."""
+    if "EndoscopeLight.to_world" in params:
+        return "EndoscopeLight.to_world"
+    if "SpotLight.to_world" in params:
+        return "SpotLight.to_world"
+    return None
+
+
+def _pose_with_radius(pose: np.ndarray, radius: float) -> np.ndarray:
+    """Keep a pose's rotation and translation, and set its uniform scale."""
+    pose = np.array(pose, dtype=np.float64).reshape(-1, 4, 4)[0].copy()
+    current = float(np.linalg.norm(pose[:3, 0]))
+    pose[:3, :3] *= radius / max(current, 1e-8)
+    return pose
+
+
+def update_scene(params, camera, model, follow_light: bool) -> None:
+    """
+    Write the viewer state into the Mitsuba scene.
+
+    The camera, the endoscope light, and the tissue roughness are separate
+    blocks. ``params.update()`` runs once after all of them.
+    """
+    # Camera. The sensor pose is the viewer camera. x_fov exists only on
+    # perspective sensors; the C3VD sensor keeps its own intrinsics.
+    cam_to_world = camera.get_transform()
+    prefix = sensor_prefix(params)
+    params[f"{prefix}.to_world"] = mi.Matrix4f(cam_to_world[None, ...])
+    fov_key = f"{prefix}.x_fov"
+    if fov_key in params:
+        params[fov_key] = mi.Float32(camera.get_x_fov()[None, ...])
+
+    # Light. Follow the camera when requested. A disk also uses the
+    # pipeline's light radius; radiance is reference / r^2 so the on-axis
+    # intensity stays constant as the disk changes size.
+    light_key = _light_key(params)
+    if light_key == "EndoscopeLight.to_world":
+        radius = getattr(model, "light_radius", None)
+        if radius is None:
+            radius = float(np.linalg.norm(
+                np.array(params[light_key].matrix, dtype=np.float64).reshape(-1, 4, 4)[0, :3, 0]
+            ))
+        radius = float(radius)
+        if follow_light:
+            pose = cam_to_world.copy()
+            pose[:3, :3] *= radius
+        else:
+            pose = _pose_with_radius(params[light_key].matrix, radius)
+        params[light_key] = mi.Matrix4f(pose[None, ...])
+        ref = getattr(model, "light_radiance_ref", None)
+        if ref is not None:
+            radiance = np.asarray(ref, dtype=np.float64) / radius ** 2
+            params["EndoscopeLight.emitter.radiance.value"] = mi.Color3f(
+                float(radiance[0]), float(radiance[1]), float(radiance[2])
+            )
+    elif light_key is not None and follow_light:
+        params[light_key] = mi.Matrix4f(cam_to_world[None, ...])
+
+    # Material. The slider is Disney roughness. disney_colocated squares it
+    # to get the GGX alpha, which is what roughplastic stores as ``alpha``.
+    roughness = getattr(model, "roughness", None)
+    if roughness is not None and "tissue.alpha" in params:
+        params["tissue.alpha"] = mi.Float(float(roughness) ** 2)
+
+    params.update()
+
+
+def load_dataset_poses(scene_name: str):
+    """C3VD pose.txt rows as Mitsuba camera matrices, or None."""
+    pose_path = os.path.join(
+        "data", "c3vd", "sequences", os.path.basename(scene_name), "pose.txt"
+    )
+    if not os.path.isfile(pose_path):
+        return None
+    with open(pose_path) as f:
+        return [parse_mitsuba_c2w(line) for line in f if line.strip()]
 
 
 def load_render_vars(config: dict, args: argparse.Namespace):
@@ -50,6 +130,12 @@ def load_render_vars(config: dict, args: argparse.Namespace):
     model_name = config["model"]["name"]
     if model_name.startswith("EndoPBR"):
         model = EndoPBR.load_from_checkpoint(
+            ckpt_path,
+            pipeline_config=config,
+            scene=scene
+        )
+    elif model_name.startswith("EndoRen"):
+        model = EndoRen.load_from_checkpoint(
             ckpt_path,
             pipeline_config=config,
             scene=scene
@@ -148,26 +234,13 @@ def render(config: dict, args: argparse.Namespace):
     use_antialiasing = False
     exposure = 1.0
     save_img = False
-    save_camera = False
-    load_camera = False
-    has_spot = "SpotLight.to_world" in params
+    light_key = _light_key(params)
     follow_light = True
-
-    camera_id = 0
-    scene_idx = 0
+    pose_index = 0
+    dataset_poses = load_dataset_poses(args.scene)
 
     while not ui.should_close():
         ui.begin_frame()
-        
-        cam_to_world = mi.Matrix4f(camera.get_transform()[None, ...])
-        prefix = sensor_prefix(params)
-        params[f"{prefix}.to_world"] = cam_to_world
-        fov_key = f"{prefix}.x_fov"
-        if fov_key in params:
-            params[fov_key] = mi.Float32(camera.get_x_fov()[None, ...])
-        if has_spot and follow_light:
-            params['SpotLight.to_world'] = cam_to_world
-        params.update()
 
         if imgui.tree_node("Render Options", imgui.TREE_NODE_DEFAULT_OPEN):
 
@@ -207,39 +280,32 @@ def render(config: dict, args: argparse.Namespace):
             imgui.tree_pop()
         
         if imgui.tree_node("Camera", imgui.TREE_NODE_DEFAULT_OPEN):
-            if has_spot:
+            if light_key:
                 _, follow_light = imgui.checkbox("Light follows camera", follow_light)
-            _, save_camera = imgui.checkbox("Save camera config", save_camera)
-            if save_camera:
-                x_fov = camera.get_x_fov()
-                extrinsics = camera.get_transform()
-                intrinsics = {
-                    "width": width,
-                    "height": height,
-                    "x_fov": x_fov,
-                }
-                print(extrinsics)
-                np.savez(
-                    "./out/poses/{:04d}.npz".format(camera_id),
-                    extrinsics=extrinsics,
-                    intrinsics=intrinsics,
+            if dataset_poses:
+                changed, pose_index = imgui.input_int(
+                    "Dataset pose", pose_index, step=1, step_fast=10
                 )
-                print("Camera config saved to ./out/poses/{:04d}.npz".format(camera_id))
-                camera_id += 1
-                save_camera = False
-
-            _, load_camera = imgui.checkbox("Load camera config", load_camera)
-            if load_camera:
-                with np.load(os.path.join("out", args.scene, "camera.npz"), allow_pickle=True) as data:
-                    extrinsics = data["extrinsics"]
-                    intrinsics = data["intrinsics"].item()
-                x_fov = intrinsics["x_fov"]
-                camera.set_transform(extrinsics)
-                camera.set_x_fov(x_fov)
-                print("Camera config loaded from", os.path.join("out", args.scene, "camera.npz"))
-                load_camera = False
-                
+                pose_index = int(np.clip(pose_index, 0, len(dataset_poses) - 1))
+                imgui.text(f"0 .. {len(dataset_poses) - 1}")
+                if changed:
+                    camera.set_transform(dataset_poses[pose_index])
+                    # print(f"Loaded dataset pose {pose_index}")
             imgui.tree_pop()
+
+        model = nr_integrator.model
+        controls = model.gui_controls() if hasattr(model, "gui_controls") else []
+        if controls and imgui.tree_node("Model", imgui.TREE_NODE_DEFAULT_OPEN):
+            for control in controls:
+                changed, value = imgui.slider_float(
+                    control.label, control.value, control.minimum, control.maximum
+                )
+                if changed:
+                    model.set_gui_control(control.key, value)
+            imgui.tree_pop()
+
+        # Camera, light, and tissue roughness, after the sliders have run.
+        update_scene(params, camera, model, follow_light)
 
         seed = int(ui.duration * 1000)
         img = mi.render(scene, integrator=integrator, seed=seed, spp=spp)
