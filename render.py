@@ -13,6 +13,8 @@ import torch
 from src.util.progress_bar import find_best_ckpt
 from src.model.radiosity import *
 from src.model.nerf import EndoPBR, EndoRen, NeRF
+from src.model.screen import ScreenSpace
+from src.dataset.c3vd_color import resolve_screen_sequences
 from src.integrator.neural import *
 from src.integrator.path import *
 from src.integrator.g_buffer import *
@@ -118,8 +120,13 @@ def load_render_vars(config: dict, args: argparse.Namespace):
     scene = mi.load_file(os.path.join("scenes", args.scene, "scene.xml"))
     params = mi.traverse(scene)
 
-    # Load model
-    ckpt_dir = os.path.join("out", args.scene, "checkpoints", config["model"]["name"])
+    # Load model. ScreenSpace checkpoints live with the joint run, not
+    # under the single sequence being drawn.
+    model_name = config["model"]["name"]
+    if model_name == "ScreenSpace":
+        ckpt_dir = os.path.join("out", "c3vd_screen", "checkpoints", "ScreenSpace")
+    else:
+        ckpt_dir = os.path.join("out", args.scene, "checkpoints", config["model"]["name"])
     if args.model_ckpt is not None:
         ckpt_path = os.path.join(ckpt_dir, args.model_ckpt + ".ckpt")
     elif config["model"]["name"] == "NULL":
@@ -127,8 +134,27 @@ def load_render_vars(config: dict, args: argparse.Namespace):
     else:
         ckpt_path, _ = find_best_ckpt(ckpt_dir, metric="loss")
 
-    model_name = config["model"]["name"]
-    if model_name.startswith("EndoPBR"):
+    if model_name == "ScreenSpace":
+        names, holdout = resolve_screen_sequences(config)
+        train_names = [name for name in names if name != holdout]
+        sequence = os.path.basename(args.scene)
+        if sequence not in train_names:
+            raise RuntimeError(
+                f"{sequence} has no ScreenSpace grid. Trained sequences: {train_names}"
+            )
+        scenes = {
+            name: mi.load_file(os.path.join("scenes", "c3vd", name, "scene.xml"))
+            for name in train_names
+        }
+        scene = scenes[sequence]
+        params = mi.traverse(scene)
+        model = ScreenSpace.load_from_checkpoint(
+            ckpt_path,
+            pipeline_config=config,
+            scenes=scenes,
+        )
+        model.render_sequence = sequence
+    elif model_name.startswith("EndoPBR"):
         model = EndoPBR.load_from_checkpoint(
             ckpt_path,
             pipeline_config=config,

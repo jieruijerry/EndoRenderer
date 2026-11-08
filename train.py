@@ -21,8 +21,9 @@ mi.set_variant("cuda_rgb")
 # Custom
 from src.model.radiosity import *
 from src.model.nerf import EndoPBR, EndoRen, NeRF
+from src.model.screen import ScreenSpace
 from src.dataset.camera import *
-from src.dataset.c3vd_color import C3VDColorDataset
+from src.dataset.c3vd_color import C3VDColorDataset, build_screen_dataset
 from src.sensor.c3vd import register_c3vd_sensor
 
 register_c3vd_sensor()
@@ -37,30 +38,15 @@ def get_local_rank():
     return int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", 0)))
 
 
-def train(config: dict, args: argparse.Namespace):
-    """
-    Train model
-    """
-    config = json.loads(json.dumps(config))
-
-    # Load scene
-    manager = None
-    scene = mi.load_file(os.path.join("scenes", args.scene, "scene.xml"))
-
-    # Tensorboard logger
+def _trainer(config: dict, output_dir: str, strategy: str = "ddp") -> tuple[Trainer, str | None]:
+    """Lightning trainer and the best checkpoint under ``output_dir``, if any."""
     logger = TensorBoardLogger(
-        os.path.join("out", args.scene, "tb_logs"),
-        name=config["model"]["name"]
+        os.path.join(output_dir, "tb_logs"),
+        name=config["model"]["name"],
     )
-
-    # Set up training directory or load from checkpoint
-    if not os.path.exists(os.path.join("out", args.scene, "checkpoints", config["model"]["name"])):
-        os.makedirs(os.path.join("out", args.scene, "checkpoints", config["model"]["name"]))
-
-    # Load checkpoint files, choose the best one, set corresponding step
-    ckpt_dir = os.path.join("out", args.scene, "checkpoints", config["model"]["name"])
-    ckpt_path, ckpt_step = find_best_ckpt(ckpt_dir, metric="loss")
-
+    ckpt_dir = os.path.join(output_dir, "checkpoints", config["model"]["name"])
+    os.makedirs(ckpt_dir, exist_ok=True)
+    ckpt_path, _ = find_best_ckpt(ckpt_dir, metric="loss")
     checkpoint_callback = ModelCheckpoint(
         monitor="loss",
         mode="min",
@@ -68,24 +54,76 @@ def train(config: dict, args: argparse.Namespace):
         save_last=False,
         every_n_train_steps=config["train"]["save_every"],
         dirpath=ckpt_dir,
-        filename="{step}_{loss:.4f}"
+        filename="{step}_{loss:.4f}",
     )
-
-    # Lightning trainer
     max_steps = int(np.ceil(config["train"]["epochs"] / get_world_size()))
-    callbacks = [checkpoint_callback, StepRichProgressBar(total_steps=max_steps)]
-
     trainer = Trainer(
         accelerator="gpu",
         devices="auto",
-        strategy="ddp",
-        precision="bf16-mixed",  # mixed precision
+        strategy=strategy,
+        precision="bf16-mixed",
         max_epochs=-1,
         max_steps=max_steps,
         logger=logger,
-        callbacks=callbacks,
+        callbacks=[checkpoint_callback, StepRichProgressBar(total_steps=max_steps)],
         log_every_n_steps=1,
     )
+    return trainer, ckpt_path
+
+
+def train_screen(config: dict) -> None:
+    """
+    Jointly train one UNet and one K-Planes grid per C3VD sequence.
+
+    Each step draws one full frame from a random training sequence. Frames
+    divisible by ``holdout_modulo`` and the held-out sequence are not in
+    this dataset.
+    """
+    dataset, train_names, holdout = build_screen_dataset(config, split="train")
+    print(f"Screen grids: {train_names}. Held-out sequence: {holdout}")
+    scenes = {
+        name: mi.load_file(os.path.join("scenes", "c3vd", name, "scene.xml"))
+        for name in train_names
+    }
+    # One step touches only the sampled sequence's grid. DDP treats the
+    # other grids as unused parameters and makes the backward path stall.
+    trainer, ckpt_path = _trainer(
+        config,
+        os.path.join("out", "c3vd_screen"),
+        strategy="auto",
+    )
+    data_loader = DataLoader(
+        dataset,
+        collate_fn=lambda x: x[0],
+        batch_size=1,
+        shuffle=True,
+    )
+    if ckpt_path is None:
+        model = ScreenSpace(config, scenes)
+    else:
+        model = ScreenSpace.load_from_checkpoint(
+            ckpt_path,
+            pipeline_config=config,
+            scenes=scenes,
+        )
+    model.train()
+    trainer.fit(model, train_dataloaders=data_loader, ckpt_path=ckpt_path)
+
+
+def train(config: dict, args: argparse.Namespace):
+    """
+    Train model
+    """
+    config = json.loads(json.dumps(config))
+    if config["model"]["name"] == "ScreenSpace":
+        train_screen(config)
+        return
+
+    # Load scene
+    manager = None
+    scene = mi.load_file(os.path.join("scenes", args.scene, "scene.xml"))
+
+    trainer, ckpt_path = _trainer(config, os.path.join("out", args.scene))
     
     # Train
     model_name = config["model"]["name"]

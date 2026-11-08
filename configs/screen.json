@@ -1,0 +1,28 @@
+{
+    "train": {
+        "epochs": 20000,
+        "save_every": 500,
+        "learning_rate": 1e-4,
+        "grid_learning_rate": 1e-3
+    },
+    "model": {
+        "name": "ScreenSpace",
+        "scale": 1,
+        "channels": [8, 16, 32, 64, 128, 256],
+        "holdout_sequence": "trans_t1_a",
+        "holdout_modulo": 8,
+        "light_radius": 1.0,
+        "ray": {
+            "name": "KPlanes",
+            "n_dims_to_encode": 4,
+            "k_reduce": "Mean",
+            "n_levels": 4,
+            "n_features_per_level": 4,
+            "log2_hashmap_size": 19,
+            "base_resolution": 32,
+            "per_level_scale": 2.0,
+            "interpolation": "Linear",
+            "level_reduce": "Concat"
+        }
+    }
+}
